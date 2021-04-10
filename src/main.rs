@@ -1,16 +1,26 @@
-use std::{env, path};
+#![deny(warnings)]
+
+use futures::{FutureExt, StreamExt};
 use warp::Filter;
 
 #[tokio::main]
 async fn main() {
-    let home = env::var("HOME").expect("You must be on a unix like system");
-    let index_path: path::PathBuf = [home.as_str(), "www", "static", "index.html"]
-        .iter()
-        .collect();
 
-    let index = warp::get()
-        .and(warp::path::end())
-        .and(warp::fs::file(index_path));
+    let routes = warp::path("echo")
+        // The `ws()` filter will prepare the Websocket handshake.
+        .and(warp::ws())
+        .map(|ws: warp::ws::Ws| {
+            // And then our closure will be called when it completes...
+            ws.on_upgrade(|websocket| {
+                // Just echo all messages back...
+                let (tx, rx) = websocket.split();
+                rx.forward(tx).map(|result| {
+                    if let Err(e) = result {
+                        eprintln!("websocket error: {:?}", e);
+                    }
+                })
+            })
+        });
 
-    warp::serve(index).run(([127, 0, 0, 1], 3030)).await;
+    warp::serve(routes).run(([127, 0, 0, 1], 80)).await;
 }
